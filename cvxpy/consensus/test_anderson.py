@@ -117,10 +117,10 @@ def test_consensus():
 	# Print variable results.
 	mse = 0
 	for xid in xbars.keys():
-		print "Variable %d:\n" % xid, xbars[xid]
-		print "Accel Variable %d:\n" %xid, xbars_aa[xid]
+		print("Variable %d:\n" % xid, xbars[xid])
+		print("Accel Variable %d:\n" %xid, xbars_aa[xid])
 		mse += np.sum(np.square(xbars[xid] - xbars_aa[xid]))
-	print "Total MSE: %f" % mse
+	print("Total MSE: %f" % mse)
 	
 	# Plot residuals.
 	plot_residuals(resid[1:,:], resid_aa[1:,:])
@@ -166,10 +166,10 @@ def test_ols():
 	# Print variable results.
 	mse = 0
 	for xid in xbars.keys():
-		print "Variable %d:\n" % xid, xbars[xid]
-		# print "Accel Variable %d:\n" %xid, xbars_aa[xid]
+		print("Variable %d:\n" % xid, xbars[xid])
+		# print("Accel Variable %d:\n" %xid, xbars_aa[xid])
 		# mse += np.sum(np.square(xbars[xid] - xbars_aa[xid]))
-	# print "Total MSE: %f" % mse
+	# print("Total MSE: %f" % mse)
 	
 	# Plot residuals.
 	plot_residuals(resid[1:,:])
@@ -218,25 +218,25 @@ def test_lasso():
 	# Print variables results.
 	mse = 0
 	for xid in xbars.keys():
-		print "Variable %d:\n" % xid, xbars[xid]
-		print "AA Variable %d:\n" % xid, xbars_aa[xid]
+		print("Variable %d:\n" % xid, xbars[xid])
+		print("AA Variable %d:\n" % xid, xbars_aa[xid])
 		mse += np.sum(np.square(xbars[xid] - xbars_aa[xid]))
-	print "Total MSE: %f" % mse
-	print "Iterations: %d" % resid.shape[0]
-	print "AA Iterations: %d" % resid_aa.shape[0]
+	print("Total MSE: %f" % mse)
+	print("Iterations: %d" % resid.shape[0])
+	print("AA Iterations: %d" % resid_aa.shape[0])
 	
 	# Plot residuals.
 	# plot_residuals(resid[1:,:])
 	plot_residuals(resid[1:,:], resid_aa[1:,:])
 
-print "Basic Test:"
+print("Basic Test:")
 test_basic()
 
-# print "Consensus Test:"
+# print("Consensus Test:")
 # test_consensus()
 
-# print "OLS Test:"
+# print("OLS Test:")
 # test_ols()
 
-print "Lasso Test:"
+print("Lasso Test:")
 test_lasso()

@@ -174,14 +174,14 @@ def prox_step(prob, rho_init):
 	"""
 	vmap = {}   # Store consensus variables
 	f = flip_obj(prob).args[0]
-	rho = Parameter(1, 1, value = rho_init, sign = "positive")   # Step size
+	rho = Parameter(value = rho_init, nonneg = True)   # Step size
 	
 	# Add penalty for each variable.
 	for xvar in prob.variables():
 		xid = xvar.id
 		size = xvar.size
-		vmap[xid] = {"x": xvar, "xbar": Parameter(size[0], size[1], value = np.zeros(size)),
-				     "u": Parameter(size[0], size[1], value = np.zeros(size))}
+		vmap[xid] = {"x": xvar, "xbar": Parameter(size, value = np.zeros(size)),
+				     "u": Parameter(size, value = np.zeros(size))}
 		f += (rho/2.0)*sum_squares(xvar - vmap[xid]["xbar"] - vmap[xid]["u"]/rho)
 	
 	prox = Problem(Minimize(f), prob.constraints)

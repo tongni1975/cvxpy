@@ -182,7 +182,7 @@ class Problems(object):
 		v_ids = ["Var%d" % v.id for v in self.variables()]
 		table = np.column_stack((v_ids, self.partition))
 		headers = [''] + ["Prob%d" % idx for idx in range(0,N)]
-		print tabulate(table, headers=headers, tablefmt='orgtbl')
+		print(tabulate(table, headers=headers, tablefmt='orgtbl'))
         
 	@property
 	def solver_stats(self):

@@ -26,13 +26,13 @@ from problems import Problems
 def compare_results(probs, obj_admm, obj_comb, x_admm, x_comb):
 	N = len(probs.variables())
 	for i in range(N):
-		print "\nADMM Solution:\n", x_admm[i]
-		print "Base Solution:\n", x_comb[i]
-		print "MSE: ", np.mean(np.square(x_admm[i] - x_comb[i])), "\n"
-	print "ADMM Objective: %f" % obj_admm
-	print "Base Objective: %f" % obj_comb
-	print "Iterations: %d" % probs.solver_stats["num_iters"]
-	print "Elapsed Time: %f" % probs.solver_stats["solve_time"]
+		print("\nADMM Solution:\n", x_admm[i])
+		print("Base Solution:\n", x_comb[i])
+		print("MSE: ", np.mean(np.square(x_admm[i] - x_comb[i])), "\n")
+	print("ADMM Objective: %f" % obj_admm)
+	print("Base Objective: %f" % obj_comb)
+	print("Iterations: %d" % probs.solver_stats["num_iters"])
+	print("Elapsed Time: %f" % probs.solver_stats["solve_time"])
 
 def plot_residuals(primal, dual):
 	resid = np.column_stack((primal, dual))
@@ -184,7 +184,7 @@ def test_logistic():
 	MAX_ITER = 55
 	loss = 0
 	for i in range(m):
-		loss += log_sum_exp(vstack(0, -Y[i]*X[i,:].T*theta))
+		loss += log_sum_exp(vstack([0, -Y[i]*X[i,:].T*theta]))
 	reg = norm(theta[:k], 1)
 	p_list = [Problem(Minimize(loss/m)), Problem(Minimize(lambd*reg))]
 	probs = Problems(p_list)
@@ -204,14 +204,14 @@ def test_logistic():
 	compare_results(probs, obj_admm, obj_comb, x_admm, x_comb)
 	
 
-# print "Basic Test"
+# print("Basic Test")
 # test_basic()
 
-# print "OLS Test"
+# print("OLS Test")
 # test_ols()
 
-# print "Lasso Test"
+# print("Lasso Test")
 # test_lasso()
 
-print "Logistic + L1 Regularization"
+print("Logistic + L1 Regularization")
 test_logistic()
