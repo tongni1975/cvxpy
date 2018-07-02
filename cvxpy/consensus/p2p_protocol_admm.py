@@ -7,7 +7,7 @@ from twisted.internet.task import LoopingCall
 from consensus import prox_step
 import cvxpy.settings as s
 
-PING_DELAY = 60   # How often to ping peers
+PING_DELAY = 6   # How often to ping peers
 generate_nodeid = lambda: str(uuid4())
 
 class ADMMProtocol(Protocol):
@@ -20,7 +20,6 @@ class ADMMProtocol(Protocol):
 		self.lc_ping = LoopingCall(self.sendPing)
 		self.lastping = None
 		
-		self.N = 0   # Number of unique peers
 		self.prox = self.factory.prox
 		self.v = self.factory.v
 		self.rho = self.factory.rho
@@ -30,7 +29,6 @@ class ADMMProtocol(Protocol):
 	
 	def connectionLost(self, reason):
 		if self.remote_nodeid in self.factory.peers:
-			self.N = self.N - 1
 			self.factory.peers.pop(self.remote_nodeid)
 			self.lc_ping.stop()
 		print(self.nodeid, "disconnected")
@@ -70,11 +68,12 @@ class ADMMProtocol(Protocol):
 				xvals[key] = value.tolist()
 		prox = json.dumps({'nodeid': self.nodeid, 'msgtype': 'prox', 
 						   'status': self.prox.status, 'xvals': xvals})
+		print("Sending updated proximal values to peers")
 		self.transport.write((prox + "\n").encode("raw_unicode_escape"))
 	
 	def sendGetProx(self):
 		getprox = json.dumps({'nodeid': self.nodeid, 'msgtype': 'getprox'})
-		print("Requesting proximal update from peer")
+		print("Requesting proximal update from peers")
 		self.transport.write((getprox + "\n").encode("raw_unicode_escape"))
 		
 	def handleHello(self, hello):
@@ -84,7 +83,6 @@ class ADMMProtocol(Protocol):
 			print("Connected to self")
 			self.transport.loseConnection()
 		else:
-			self.N = self.N + 1
 			self.factory.peers[self.remote_nodeid] = self
 			self.lc_ping.start(PING_DELAY)
 			self.sendGetProx()
@@ -97,29 +95,40 @@ class ADMMProtocol(Protocol):
 		self.lastping = time()
 	
 	def handleProx(self, pres):
+		print("Got updated proximal values from", self.remote_nodeid)
+		
 		# Deserialize by converting lists back to numpy arrays
 		pres = json.loads(pres)
 		for key, value in pres["xvals"].items():
 			if isinstance(value, list):
 				pres["xvals"][key] = np.asarray(value)
 		
-		# Check if proximal step by peer converged.
-		if pres["status"] in s.INF_OR_UNB:
-			raise RuntimeError("Proximal problem is infeasible or unbounded")
+		# Keys (variable ids) were cast to string during serialization
+		# and must be converted back to integer
+		pres["xvals"] = dict((int(key), value) for key, value in pres["xvals"].items())
 		
 		# Calculate x_bar^(k+1).
-		scale = self.N/(self.N + 1.0)
 		for key, value in pres["xvals"].items():
 			if key in self.v.keys():
-				self.v[key]["xbar"].value = scale*(self.v[key]["x"].value + value)
+				self.v[key]["xbar"].value = (self.v[key]["x"].value + value)/2.0
 		
 		# Update u^(k+1) += x_bar^(k+1) - x^(k+1).
 		for key in self.v.keys():
 			self.v[key]["u"].value += (self.v[key]["x"] - self.v[key]["xbar"]).value
+		
+		# Print current primal values.
+		for key, value in self.v.items():
+			print("Primal Variable", key, ":\n", value["x"].value)
+			print("Dual Variable", key, ":\n", value["u"].value)
 	
 	def handleGetProx(self):
+		print("Got proximal update request from", self.remote_nodeid)
 		# Proximal step for x^(k+1).
 		self.prox.solve()
+		
+		# Check if proximal step converged.
+		if self.prox.status in s.INF_OR_UNB:
+			raise RuntimeError("Proximal problem is infeasible or unbounded")
 		
 		# Send x^{k+1} to peer.
 		xvals = {}
