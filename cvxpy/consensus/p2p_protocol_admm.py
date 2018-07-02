@@ -64,8 +64,11 @@ class ADMMProtocol(Protocol):
 	
 	def sendProx(self, xvals):
 		for key, value in xvals.items():
+			if not isinstance(key, int):
+				raise RuntimeError("All variable ids must be integers")
 			if isinstance(value, np.ndarray):
 				xvals[key] = value.tolist()
+		
 		prox = json.dumps({'nodeid': self.nodeid, 'msgtype': 'prox', 
 						   'status': self.prox.status, 'xvals': xvals})
 		print("Sending updated proximal values to peers")
