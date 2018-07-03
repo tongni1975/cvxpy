@@ -7,7 +7,7 @@ from twisted.internet.task import LoopingCall
 from consensus import prox_step
 import cvxpy.settings as s
 
-PING_DELAY = 6   # How often to ping peers
+PROX_DELAY = 1   # How often to request proximal updates
 generate_nodeid = lambda: str(uuid4())
 
 class ADMMProtocol(Protocol):
@@ -17,8 +17,9 @@ class ADMMProtocol(Protocol):
 		self.state = "HELLO"
 		self.remote_nodeid = None
 		self.nodeid = self.factory.nodeid
-		self.lc_ping = LoopingCall(self.sendPing)
-		self.lastping = None
+		self.verbose = self.factory.verbose
+		self.lc_prox = LoopingCall(self.sendGetProx)
+		self.lastprox = None
 		
 		self.prox = self.factory.prox
 		self.v = self.factory.v
@@ -30,7 +31,7 @@ class ADMMProtocol(Protocol):
 	def connectionLost(self, reason):
 		if self.remote_nodeid in self.factory.peers:
 			self.factory.peers.pop(self.remote_nodeid)
-			self.lc_ping.stop()
+			self.lc_prox.stop()
 		print(self.nodeid, "disconnected")
 	
 	def dataReceived(self, data):
@@ -40,10 +41,6 @@ class ADMMProtocol(Protocol):
 			if self.state == "HELLO" or msgtype == "hello":
 				self.handleHello(line)
 				self.state = "READY"
-			elif msgtype == "ping":
-				self.handlePing()
-			elif msgtype == "pong":
-				self.handlePong()
 			elif msgtype == "prox":
 				self.handleProx(line)
 			elif msgtype == "getprox":
@@ -52,15 +49,6 @@ class ADMMProtocol(Protocol):
 	def sendHello(self):
 		hello = json.dumps({'nodeid': self.nodeid, 'msgtype': 'hello'})
 		self.transport.write((hello + "\n").encode("raw_unicode_escape"))
-	
-	def sendPing(self):
-		ping = json.dumps({'nodeid': self.nodeid, 'msgtype': 'ping'})
-		print("Pinging", self.remote_nodeid)
-		self.transport.write((ping + "\n").encode("raw_unicode_escape"))
-	
-	def sendPong(self):
-		pong = json.dumps({'nodeid': self.nodeid, 'msgtype': 'pong'})
-		self.transport.write((pong + "\n").encode("raw_unicode_escape"))
 	
 	def sendProx(self, xvals):
 		for key, value in xvals.items():
@@ -87,18 +75,11 @@ class ADMMProtocol(Protocol):
 			self.transport.loseConnection()
 		else:
 			self.factory.peers[self.remote_nodeid] = self
-			self.lc_ping.start(PING_DELAY)
-			self.sendGetProx()
-	
-	def handlePing(self):
-		self.sendPong()
-	
-	def handlePong(self):
-		print("Got pong from", self.remote_nodeid)
-		self.lastping = time()
+			self.lc_prox.start(PROX_DELAY)
 	
 	def handleProx(self, pres):
 		print("Got updated proximal values from", self.remote_nodeid)
+		self.lastprox = time()
 		
 		# Deserialize by converting lists back to numpy arrays
 		pres = json.loads(pres)
@@ -111,21 +92,36 @@ class ADMMProtocol(Protocol):
 		pres["xvals"] = dict((int(key), value) for key, value in pres["xvals"].items())
 		
 		# Calculate x_bar^(k+1).
+		xbar_old = dict((key, vdict["xbar"].value) for key, vdict in self.v.items())
 		for key, value in pres["xvals"].items():
 			if key in self.v.keys():
 				self.v[key]["xbar"].value = (self.v[key]["x"].value + value)/2.0
 		
 		# Update u^(k+1) += x_bar^(k+1) - x^(k+1).
+		res_ssq = {"primal": 0, "dual": 0}
 		for key in self.v.keys():
 			self.v[key]["u"].value += (self.v[key]["x"] - self.v[key]["xbar"]).value
+			
+			if self.v[key]["x"].value is None:
+				primal = -self.v[key]["xbar"].value
+			else:
+				primal = (self.v[key]["x"] - self.v[key]["xbar"]).value
+			dual = (self.rho*(self.v[key]["xbar"] - xbar_old[key])).value
+			res_ssq["primal"] += np.sum(np.square(primal))
+			res_ssq["dual"] += np.sum(np.square(dual))
 		
-		# Print current primal values.
-		for key, value in self.v.items():
-			print("Primal Variable", key, ":\n", value["x"].value)
-			print("Dual Variable", key, ":\n", value["u"].value)
+		# Print sum-of-squared primal/dual residuals.
+		if self.verbose:
+			print("Primal Residual:", res_ssq["primal"])
+			print("Dual Residual:", res_ssq["dual"])
+			# for key, vdict in self.v.items():
+			#	print("Variable", key)
+			#	print("Primal:", vdict["x"].value)
+			#	print("Dual:", vdict["u"].value)
 	
 	def handleGetProx(self):
 		print("Got proximal update request from", self.remote_nodeid)
+		
 		# Proximal step for x^(k+1).
 		self.prox.solve()
 		
@@ -141,12 +137,14 @@ class ADMMProtocol(Protocol):
 
 class ADMMFactory(Factory):
 	"""Factory for basic P2P protocol"""
-	def __init__(self, prob, rho = 1.0):
+	def __init__(self, prob, rho = 1.0, verbose = False):
+		self.verbose = verbose
 		self.prox, self.v, self.rho = prox_step(prob, rho)
 	
 	def startFactory(self):
 		self.peers = {}
 		self.nodeid = generate_nodeid()
+		self.prox.solve()   # Solve proximal problem to get initial x^0.
 	
 	def buildProtocol(self, addr):
 		return ADMMProtocol(self)
