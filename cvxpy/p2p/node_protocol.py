@@ -11,7 +11,7 @@ PROX_DELAY = 1   # How often to request proximal updates
 generate_nodeid = lambda: str(uuid4())
 
 class ADMMProtocol(Protocol):
-	"""Basic P2P protocol for discovering peers"""
+	"""P2P protocol for decentralized ADMM"""
 	def __init__(self, factory):
 		self.factory = factory
 		self.state = "HELLO"
@@ -32,7 +32,9 @@ class ADMMProtocol(Protocol):
 		if self.remote_nodeid in self.factory.peers:
 			self.factory.peers.pop(self.remote_nodeid)
 			self.lc_prox.stop()
-		print(self.nodeid, "disconnected")
+			print(self.remote_nodeid, "disconnected")
+		else:
+			print(self.nodeid, "disconnected")
 	
 	def dataReceived(self, data):
 		for line in data.splitlines():
@@ -58,7 +60,8 @@ class ADMMProtocol(Protocol):
 				xvals[key] = value.tolist()
 		
 		prox = json.dumps({'nodeid': self.nodeid, 'msgtype': 'prox', 
-						   'status': self.prox.status, 'xvals': xvals})
+						   'status': self.prox.status, 'xvals': xvals, 
+						   'rho': self.rho.value})
 		print("Sending updated proximal values to peers")
 		self.transport.write((prox + "\n").encode("raw_unicode_escape"))
 	
@@ -67,57 +70,59 @@ class ADMMProtocol(Protocol):
 		print("Requesting proximal update from peers")
 		self.transport.write((getprox + "\n").encode("raw_unicode_escape"))
 		
-	def handleHello(self, hello):
-		hello = json.loads(hello)
-		self.remote_nodeid = hello["nodeid"]
+	def handleHello(self, msg):
+		msg = json.loads(msg)
+		self.remote_nodeid = msg["nodeid"]
 		if self.remote_nodeid == self.nodeid:
 			print("Connected to self")
 			self.transport.loseConnection()
 		else:
-			self.factory.peers[self.remote_nodeid] = self
+			self.factory.peers[self.remote_nodeid] = self.transport.getPeer()
 			self.lc_prox.start(PROX_DELAY)
 	
-	def handleProx(self, pres):
+	def handleProx(self, msg):
 		print("Got updated proximal values from", self.remote_nodeid)
 		self.lastprox = time()
 		
-		# Deserialize by converting lists back to numpy arrays
-		pres = json.loads(pres)
-		for key, value in pres["xvals"].items():
+		# Deserialize by converting lists back to numpy arrays.
+		msg = json.loads(msg)
+		for key, value in msg["xvals"].items():
 			if isinstance(value, list):
-				pres["xvals"][key] = np.asarray(value)
+				msg["xvals"][key] = np.asarray(value)
 		
 		# Keys (variable ids) were cast to string during serialization
-		# and must be converted back to integer
-		pres["xvals"] = dict((int(key), value) for key, value in pres["xvals"].items())
+		# and must be converted back to integer.
+		msg["xvals"] = dict((int(key), value) for key, value in msg["xvals"].items())
 		
 		# Calculate x_bar^(k+1).
+		rho_sum = self.rho.value + msg["rho"]
 		xbar_old = dict((key, vdict["xbar"].value) for key, vdict in self.v.items())
-		for key, value in pres["xvals"].items():
+		for key, value in msg["xvals"].items():
 			if key in self.v.keys():
-				self.v[key]["xbar"].value = (self.v[key]["x"].value + value)/2.0
+				self.v[key]["xbar"].value = (self.rho*self.v[key]["x"] + msg["rho"]*value).value/rho_sum
 		
 		# Update u^(k+1) += x_bar^(k+1) - x^(k+1).
-		res_ssq = {"primal": 0, "dual": 0}
+		self.res_ssq = {"primal": 0, "dual": 0}
 		for key in self.v.keys():
-			self.v[key]["u"].value += (self.v[key]["x"] - self.v[key]["xbar"]).value
+			self.v[key]["y"].value += (self.rho*(self.v[key]["x"] - self.v[key]["xbar"])).value
 			
 			if self.v[key]["x"].value is None:
 				primal = -self.v[key]["xbar"].value
 			else:
 				primal = (self.v[key]["x"] - self.v[key]["xbar"]).value
 			dual = (self.rho*(self.v[key]["xbar"] - xbar_old[key])).value
-			res_ssq["primal"] += np.sum(np.square(primal))
-			res_ssq["dual"] += np.sum(np.square(dual))
+			self.res_ssq["primal"] += np.sum(np.square(primal))
+			self.res_ssq["dual"] += np.sum(np.square(dual))
 		
 		# Print sum-of-squared primal/dual residuals.
 		if self.verbose:
-			print("Primal Residual:", res_ssq["primal"])
-			print("Dual Residual:", res_ssq["dual"])
-			# for key, vdict in self.v.items():
-			#	print("Variable", key)
+			# print("Primal Residual:", self.res_ssq["primal"])
+			# print("Dual Residual:", self.res_ssq["dual"])
+			for key, vdict in self.v.items():
+				print("Variable", key)
 			#	print("Primal:", vdict["x"].value)
-			#	print("Dual:", vdict["u"].value)
+			#	print("Dual:", vdict["y"].value)
+				print("Consensus", vdict["xbar"].value)
 	
 	def handleGetProx(self):
 		print("Got proximal update request from", self.remote_nodeid)
@@ -139,7 +144,7 @@ class ADMMFactory(Factory):
 	"""Factory for basic P2P protocol"""
 	def __init__(self, prob, rho = 1.0, verbose = False):
 		self.verbose = verbose
-		self.prox, self.v, self.rho = prox_step(prob, rho)
+		self.prox, self.v, self.rho = prox_step(prob, rho, scaled = False)
 	
 	def startFactory(self):
 		self.peers = {}

@@ -14,15 +14,21 @@ def printError(failure):
 
 def main():
 	np.random.seed(1)
-	m = 100
-	n = 10
+	# m = 100
+	# n = 10
+	# A = np.random.randn(m*n).reshape(m,n)
+	# b = np.random.randn(m)
 	
+	# Import and split problem data.
+	data = np.load("data/test_data.npy")
+	A = data[:100,:-1]
+	b = data[:100,-1]
+	m, n = A.shape
+	
+	# Pass private problem to ADMM.
 	x = Variable((n,), var_id = 1)
-	A = np.random.randn(m*n).reshape(m,n)
-	b = np.random.randn(m)
 	prob = Problem(Minimize(sum_squares(A*x-b)))	
-
-	factory = ADMMFactory(prob, verbose = True)
+	factory = ADMMFactory(prob, rho = 0.5, verbose = True)
 	factory.startFactory()
 	
 	"""This starts the server-side protocol on port 5999"""
