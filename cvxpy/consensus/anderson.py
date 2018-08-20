@@ -20,24 +20,58 @@ along with CVXPY.  If not, see <http://www.gnu.org/licenses/>.
 import numpy as np
 from scipy.linalg import qr_insert, qr_delete, solve_triangular
 
-# Solve LS problem by QR decomposition
-# https://en.wikipedia.org/wiki/QR_decomposition#Using_for_solution_to_linear_inverse_problems
 def inner_prob(f, Q, R, Qt, Rt):
+	""" Solve the least-squares problem
+	   Minimize sum_squares(Ax - b)
+	with variable x, given the QR decomposition of `A` and `A.T`. Both
+	are necessary because we do not know a priori if `A` is a fat or 
+	skinny matrix.
+	
+	https://en.wikipedia.org/wiki/QR_decomposition#Using_for_solution_to_linear_inverse_problems
+	
+	Parameters
+	----------
+	b : array
+	     The data for the problem.
+	Q, R : array
+	     The QR decomposition of `A`.
+	Qt, Rt : array
+	     The QR decomposition of `A.T`.
+	
+	Returns
+    ----------
+    An array containing the solution.
+	"""
 	m = Q.shape[0]
 	n = R.shape[1]
 	if m < n:
 		Rt = Rt[0:m,:]
-		Rif = solve_triangular(Rt.T, f, lower = True)
-		Rif = np.insert(Rif, m, np.zeros((n-m,1)), axis = 0)
-		return Qt.dot(Rif)
+		Rib = solve_triangular(Rt.T, b, lower = True)
+		Rib = np.insert(Rib, m, np.zeros((n-m,1)), axis = 0)
+		return Qt.dot(Rib)
 	else:
 		Q = Q[:,0:n]
 		R = R[0:n,:]
-		Qf = Q.T.dot(f)
-		return solve_triangular(R, Qf, lower = False)
+		Qb = Q.T.dot(b)
+		return solve_triangular(R, Qb, lower = False)
 
-# Trim left columns until condition number < threshold
-def trim_cond(Q, R, Qt, Rt, rcond=np.inf):
+def trim_cond(Q, R, Qt, Rt, rcond = np.inf):
+	""" Update the QR decomposition of a matrix `A` after its columns have been
+	trimmed (from left to right) so its condition number falls below a threshold.
+	
+	Parameters
+	----------
+	Q, R : array
+	     The QR decomposition of `A`.
+	Qt, Rt : array
+	     The QR decomposition of `A.T`.
+	rcond : int
+	     Upper threshold on the condition number.
+	
+	Returns
+    ----------
+    The QR decomposition of the trimmed matrix and its transpose.
+	"""
 	cond = np.linalg.cond(Q.dot(R))
 	while (cond > rcond):
 		Q, R = qr_delete(Q, R, 0, 1, which = 'col')

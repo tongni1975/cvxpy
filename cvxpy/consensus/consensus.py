@@ -150,7 +150,7 @@ def step_spec(rho, k, dx, dxbar, du, duhat, eps = 0.2, C = 1e10):
 	rho_hat = step_safe(rho, a_hat, b_hat, a_cor, b_cor, eps)
 	return max(min(rho_hat, scale*rho), rho/scale)
 
-def prox_step(prob, rho_init):
+def prox_step(prob, rho_init, scaled = True):
 	"""Formulates the proximal operator for a given objective, constraints, and step size.
 	Parikh, Boyd. "Proximal Algorithms."
 	
@@ -161,6 +161,8 @@ def prox_step(prob, rho_init):
         The sign of the objective function is flipped if `prob` is a maximization problem.
     rho_init : float
         The initial step size.
+    scaled : logical, optional
+        Should the proximal step use the scaled dual variable?
     
     Returns
     ----------
@@ -168,7 +170,8 @@ def prox_step(prob, rho_init):
         The proximal step problem.
     vmap : dict
         A map of each proximal variable id to a dictionary containing that variable `x`,
-        the mean variable parameter `xbar`, and the associated dual parameter `u`.
+        the mean variable parameter `xbar`, and the associated dual parameter: `u` if
+        `scaled = True` or `y` if `scaled = False`.
     rho : Parameter
         The step size parameter.
 	"""
@@ -177,12 +180,20 @@ def prox_step(prob, rho_init):
 	rho = Parameter(value = rho_init, nonneg = True)   # Step size
 	
 	# Add penalty for each variable.
-	for xvar in prob.variables():
-		xid = xvar.id
-		size = xvar.size
-		vmap[xid] = {"x": xvar, "xbar": Parameter(size, value = np.zeros(size)),
-				     "u": Parameter(size, value = np.zeros(size))}
-		f += (rho/2.0)*sum_squares(xvar - vmap[xid]["xbar"] - vmap[xid]["u"]/rho)
+	if scaled:
+		for xvar in prob.variables():
+			xid = xvar.id
+			size = xvar.size
+			vmap[xid] = {"x": xvar, "xbar": Parameter(size, value = np.zeros(size)),
+						 "u": Parameter(size, value = np.zeros(size))}
+			f += (rho/2.0)*sum_squares(xvar - vmap[xid]["xbar"] - vmap[xid]["u"]/rho)
+	else:
+		for xvar in prob.variables():
+			xid = xvar.id
+			size = xvar.size
+			vmap[xid] = {"x": xvar, "xbar": Parameter(size, value = np.zeros(size)),
+				         "y": Parameter(size, value = np.zeros(size))}
+			f += sum(multiply(vmap[xid]["y"], xvar - vmap[xid]["xbar"])) + (rho/2.0)*sum_squares(xvar - vmap[xid]["xbar"])
 	
 	prox = Problem(Minimize(f), prob.constraints)
 	return prox, vmap, rho
